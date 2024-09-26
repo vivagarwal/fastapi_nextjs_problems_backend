@@ -1,10 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-
-
+from fastapi.responses import FileResponse
+import os
 
 app = FastAPI()
+
+# Define the path to the HTML file
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+HTML_FILE_PATH = os.path.join(BASE_DIR, "templates", "problem_description.html")
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,6 +39,11 @@ async def root():
 @app.get("/api/hello")
 async def read_root():
     return {"message": "Hello from FastAPI!"}
+
+@app.get("/api/get-problem-description")
+async def get_problem_description():
+    # Return the HTML file as a FileResponse
+    return FileResponse(HTML_FILE_PATH, media_type='text/html')
 
 @app.post("/api/check-palindrome")
 async def check_palindrome(request: InputRequest):
