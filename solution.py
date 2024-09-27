@@ -9,4 +9,11 @@ def sol_0(y: str) -> bool:
     return (sum // 10 == x or sum == x)
 
 def sol_1(y: str):
-    return "aayush"+y
+    nums = list(map(int, y.split()))
+    k=0
+    l = len(nums)
+    for x in range (0,l):
+            if(x ==0 or nums[x]!=nums[x-1]):
+                nums[k]=nums[x]
+                k+=1
+    return k
