@@ -10,6 +10,9 @@ import asyncio
 import subprocess
 import uuid
 import tempfile
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI()
 
@@ -43,8 +46,10 @@ def get_html_file_path(id : int) -> str:
 
 def generate_file(language, code, input):
     file_extension = {'cpp': 'cpp', 'java': 'java', 'py': 'py', 'c': 'c'}
-    filename = f"{str(uuid.uuid4())}.{file_extension[language]}"
-    input_filename = f"{str(uuid.uuid4())}.txt"
+    temp_dir = os.getenv('OUTPUT_TEMP_DIR')
+    os.makedirs(temp_dir, exist_ok=True)
+    filename = os.path.join(temp_dir,f"{str(uuid.uuid4())}.{file_extension[language]}")
+    input_filename = os.path.join(temp_dir,f"{str(uuid.uuid4())}.txt")
     with open(filename, 'w') as file:
         file.write(code)
     with open(input_filename, 'w') as file:
@@ -63,54 +68,55 @@ def cleanup_files(file_path, input_path):
 
 def execute_cpp(file_path, input_path):
     # Get the directory of the source file
-    file_dir = os.path.dirname(file_path)
     file_name = os.path.basename(file_path)
     file_name_without_ext = os.path.splitext(file_name)[0]
 
     # Create a temporary directory for compilation and execution
-    with tempfile.TemporaryDirectory() as temp_dir:
-        if os.name == 'nt':  # Windows
-            compiled_path = os.path.join(temp_dir, f"{file_name_without_ext}.exe")
-            compile_command = f"g++ \"{file_path}\" -o \"{compiled_path}\""
-            run_command = f"\"{compiled_path}\" < \"{input_path}\""
-        else:  # macOS/Linux
-            compiled_path = os.path.join(temp_dir, file_name_without_ext)
-            compile_command = f"g++ \"{file_path}\" -o \"{compiled_path}\""
-            run_command = f"chmod +x \"{compiled_path}\" && \"{compiled_path}\" < \"{input_path}\""
+    #with os.getenv('OUTPUT_TEMP_DIR') as temp_dir:
+    temp_dir = os.getenv('OUTPUT_TEMP_DIR')
 
-        # try:
-        #     # Compile
-        #     compile_process = await asyncio.create_subprocess_shell(
-        #         compile_command,
-        #         stdout=asyncio.subprocess.PIPE,
-        #         stderr=asyncio.subprocess.PIPE
-        #     )
-        #     _, compile_stderr = await compile_process.communicate()
+    if os.name == 'nt':  # Windows
+        compiled_path = os.path.join(temp_dir, f"{file_name_without_ext}.exe")
+        compile_command = f"g++ \"{file_path}\" -o \"{compiled_path}\""
+        run_command = f"\"{compiled_path}\" < \"{input_path}\""
+    else:  # macOS/Linux
+        compiled_path = os.path.join(temp_dir, f"{file_name_without_ext}.out")
+        compile_command = f"g++ \"{file_path}\" -o \"{compiled_path}\""
+        run_command = f"chmod +x \"{compiled_path}\" && \"{compiled_path}\" < \"{input_path}\""
 
-        #     if compile_process.returncode != 0:
-        #         return {'output': f"Compilation error: {compile_stderr.decode()}"}
+    # try:
+    #     # Compile
+    #     compile_process = await asyncio.create_subprocess_shell(
+    #         compile_command,
+    #         stdout=asyncio.subprocess.PIPE,
+    #         stderr=asyncio.subprocess.PIPE
+    #     )
+    #     _, compile_stderr = await compile_process.communicate()
 
-        #     # Run
-        #     run_process = await asyncio.create_subprocess_shell(
-        #         run_command,
-        #         stdout=asyncio.subprocess.PIPE,
-        #         stderr=asyncio.subprocess.PIPE
-        #     )
-        #     stdout, stderr = await run_process.communicate()
+    #     if compile_process.returncode != 0:
+    #         return {'output': f"Compilation error: {compile_stderr.decode()}"}
 
-        #     if stderr:
-        #         return {'output': stderr.decode()}
-        #     return {'output': stdout.decode()}
-        # except Exception as e:
-        #     return {'output': f"Execution error: {str(e)}"}
-        os.system(compile_command)
-        output = os.popen(run_command).read()
-        #os.remove(compiled_path)
-        cleanup_files(file_path, input_path)
-        # Also remove the compiled file if it exists
-        if os.path.exists(compiled_path):
-            os.remove(compiled_path)
-        return {'output': output}
+    #     # Run
+    #     run_process = await asyncio.create_subprocess_shell(
+    #         run_command,
+    #         stdout=asyncio.subprocess.PIPE,
+    #         stderr=asyncio.subprocess.PIPE
+    #     )
+    #     stdout, stderr = await run_process.communicate()
+
+    #     if stderr:
+    #         return {'output': stderr.decode()}
+    #     return {'output': stdout.decode()}
+    # except Exception as e:
+    #     return {'output': f"Execution error: {str(e)}"}
+    os.system(compile_command)
+    output = os.popen(run_command).read()
+    #os.remove(compiled_path)
+    cleanup_files(file_path, input_path)
+    # Also remove the compiled file if it exists
+    if os.path.exists(compiled_path):
+        os.remove(compiled_path)
+    return {'output': output}
 
 
 
