@@ -11,8 +11,6 @@ import subprocess
 import uuid
 import tempfile
 
-
-
 app = FastAPI()
 
 # Define the path to the HTML file
@@ -43,7 +41,7 @@ def get_html_file_path(id : int) -> str:
     HTML_FILE_PATH = os.path.join(BASE_DIR, "templates", s)
     return HTML_FILE_PATH
 
-async def generate_file(language, code, input):
+def generate_file(language, code, input):
     file_extension = {'cpp': 'cpp', 'java': 'java', 'py': 'py', 'c': 'c'}
     filename = f"{str(uuid.uuid4())}.{file_extension[language]}"
     input_filename = f"{str(uuid.uuid4())}.txt"
@@ -53,7 +51,17 @@ async def generate_file(language, code, input):
         file.write(input)
     return filename, input_filename
 
-async def execute_cpp(file_path, input_path):
+def cleanup_files(file_path, input_path):
+    files_to_delete = [file_path, input_path]
+    
+    for file in files_to_delete:
+        try:
+            os.remove(file)
+            print(f"Successfully deleted {file}")
+        except OSError as e:
+            print(f"Error deleting {file}: {e.strerror}")
+
+def execute_cpp(file_path, input_path):
     # Get the directory of the source file
     file_dir = os.path.dirname(file_path)
     file_name = os.path.basename(file_path)
@@ -70,31 +78,41 @@ async def execute_cpp(file_path, input_path):
             compile_command = f"g++ \"{file_path}\" -o \"{compiled_path}\""
             run_command = f"chmod +x \"{compiled_path}\" && \"{compiled_path}\" < \"{input_path}\""
 
-        try:
-            # Compile
-            compile_process = await asyncio.create_subprocess_shell(
-                compile_command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _, compile_stderr = await compile_process.communicate()
+        # try:
+        #     # Compile
+        #     compile_process = await asyncio.create_subprocess_shell(
+        #         compile_command,
+        #         stdout=asyncio.subprocess.PIPE,
+        #         stderr=asyncio.subprocess.PIPE
+        #     )
+        #     _, compile_stderr = await compile_process.communicate()
 
-            if compile_process.returncode != 0:
-                return {'output': f"Compilation error: {compile_stderr.decode()}"}
+        #     if compile_process.returncode != 0:
+        #         return {'output': f"Compilation error: {compile_stderr.decode()}"}
 
-            # Run
-            run_process = await asyncio.create_subprocess_shell(
-                run_command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await run_process.communicate()
+        #     # Run
+        #     run_process = await asyncio.create_subprocess_shell(
+        #         run_command,
+        #         stdout=asyncio.subprocess.PIPE,
+        #         stderr=asyncio.subprocess.PIPE
+        #     )
+        #     stdout, stderr = await run_process.communicate()
 
-            if stderr:
-                return {'output': stderr.decode()}
-            return {'output': stdout.decode()}
-        except Exception as e:
-            return {'output': f"Execution error: {str(e)}"}
+        #     if stderr:
+        #         return {'output': stderr.decode()}
+        #     return {'output': stdout.decode()}
+        # except Exception as e:
+        #     return {'output': f"Execution error: {str(e)}"}
+        os.system(compile_command)
+        output = os.popen(run_command).read()
+        #os.remove(compiled_path)
+        cleanup_files(file_path, input_path)
+        # Also remove the compiled file if it exists
+        if os.path.exists(compiled_path):
+            os.remove(compiled_path)
+        return {'output': output}
+
+
 
 
 @app.get("/")
@@ -137,14 +155,14 @@ async def check_solution(id: int, request: InputRequest):
 async def get_all_problems():
     return {"problems": problems_list}
 
-@app.post("/run")
+@app.post("/api/run")
 async def run_code(request: RunRequest):
     try:
-        file_path, input_path = await generate_file(request.language, request.code, request.input)
+        file_path, input_path = generate_file(request.language, request.code, request.input)
         result = None
 
         if(request.language == 'cpp'):
-            result=await execute_cpp(file_path,input_path)
+            result=execute_cpp(file_path,input_path)
         return {"output":result['output']}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
