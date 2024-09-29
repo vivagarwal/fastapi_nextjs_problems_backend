@@ -1,8 +1,9 @@
+import sys
 from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 import os
 from data_problems import problems_list
 import importlib
@@ -11,6 +12,8 @@ import subprocess
 import uuid
 import tempfile
 from dotenv import load_dotenv
+from typing import List
+
 
 load_dotenv()
 
@@ -38,6 +41,22 @@ class RunRequest(BaseModel):
     language:str='cpp'
     code:str
     input:Optional[str]= ''
+
+class SubmitRequest(BaseModel):
+    id: int
+    language: str = 'cpp'
+    code: str
+
+class TestResult(BaseModel):
+    input: str
+    expectedOutput: str
+    actualOutput: str
+    passed: bool
+
+class SubmitResponse(BaseModel):
+    success: bool
+    status: str
+    message: str
 
 def get_html_file_path(id : int) -> str:
     s = "problem_description_"+str(id)+".html"
@@ -118,8 +137,25 @@ def execute_cpp(file_path, input_path):
         os.remove(compiled_path)
     return {'output': output}
 
+def execute_python(file_path, input_path):
+    # Get the Python interpreter path
+    if os.name == 'nt':
+        python_command = "python"
+    else:
+        python_command = "python3"
 
+    # Construct the command to run the Python script with input
+    command = f'{python_command} "{file_path}" < "{input_path}"'
 
+    try:
+        # Execute the command and capture the output
+        output = os.popen(command).read()
+        return {'output': output}
+    except Exception as e:
+        return {'output': f"Execution error: {str(e)}"}
+    finally:
+        # Clean up the files
+        cleanup_files(file_path, input_path)
 
 @app.get("/")
 async def root():
@@ -141,11 +177,11 @@ async def get_problem_description(id: int):
     # Return the HTML file as a FileResponse
     return FileResponse(path, media_type='text/html')
 
-@app.post("/api/check-palindrome")
-async def check_palindrome(request: InputRequest):
-    inp1 = request.inp
-    result = is_palindrome(inp1)
-    return {"input":inp1,"output": result}
+# @app.post("/api/check-palindrome")
+# async def check_palindrome(request: InputRequest):
+#     inp1 = request.inp
+#     result = is_palindrome(inp1)
+#     return {"input":inp1,"output": result}
 
 @app.post("/api/check-solution/{id}")
 async def check_solution(id: int, request: InputRequest):
@@ -164,15 +200,78 @@ async def get_all_problems():
 @app.post("/api/run")
 async def run_code(request: RunRequest):
     try:
+        if not request.code:
+            raise HTTPException(status_code=400, detail="Empty code!")
         file_path, input_path = generate_file(request.language, request.code, request.input)
         result = None
 
-        if(request.language == 'cpp'):
-            result=execute_cpp(file_path,input_path)
+        if request.language == 'cpp':
+                result = execute_cpp(file_path, input_path)
+        elif request.language == 'py':
+                result = execute_python(file_path, input_path)
+        elif request.language not in ['cpp', 'py']:
+                raise HTTPException(status_code=400, detail="Unsupported language")
+
         return {"output":result['output']}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
 
+
+@app.post("/api/submit", response_model=SubmitResponse)
+async def submit_solution(request: SubmitRequest):
+    if not request.code:
+        raise HTTPException(status_code=400, detail="Empty code!")
+
+    try:
+        # Get the problem details based on the ID
+        problem = next((p for p in problems_list if p['id'] == request.id), None)
+        if not problem:
+            raise HTTPException(status_code=404, detail="Problem not found")
+
+        test_cases = problem.get('test_cases', [])
+        if not test_cases:
+            raise HTTPException(status_code=400, detail="No test cases found for this problem")
+
+        results = []
+        passed_count = 0
+        total_count = len(test_cases)
+
+        for test_case in test_cases:
+            file_path, input_path = generate_file(request.language, request.code, test_case['input'])
+            
+            if request.language == 'cpp':
+                result = execute_cpp(file_path, input_path)
+            elif request.language == 'py':
+                result = execute_python(file_path, input_path)
+            elif request.language not in ['cpp', 'py']:
+                raise HTTPException(status_code=400, detail="Unsupported language")
+
+            actual_output = result['output'].strip()
+            expected_output = str(test_case['output']).strip()
+            passed = actual_output == expected_output
+
+            if passed:
+                passed_count += 1
+
+            results.append(TestResult(
+                input=test_case['input'],
+                expectedOutput=expected_output,
+                actualOutput=actual_output,
+                passed=passed
+            ))
+
+        all_passed = passed_count == total_count
+        
+        return SubmitResponse(
+            success=True,
+            results=results,
+            status="Success" if all_passed else "Failed",
+            message=f"Passed {passed_count}/{total_count} test cases",
+            passed_count=passed_count,
+            total_count=total_count
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
