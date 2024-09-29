@@ -177,11 +177,11 @@ async def get_problem_description(id: int):
     # Return the HTML file as a FileResponse
     return FileResponse(path, media_type='text/html')
 
-@app.post("/api/check-palindrome")
-async def check_palindrome(request: InputRequest):
-    inp1 = request.inp
-    result = is_palindrome(inp1)
-    return {"input":inp1,"output": result}
+# @app.post("/api/check-palindrome")
+# async def check_palindrome(request: InputRequest):
+#     inp1 = request.inp
+#     result = is_palindrome(inp1)
+#     return {"input":inp1,"output": result}
 
 @app.post("/api/check-solution/{id}")
 async def check_solution(id: int, request: InputRequest):
